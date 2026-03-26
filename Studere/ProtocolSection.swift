@@ -2,8 +2,6 @@ import Foundation
 
 // MARK: - ProtocolSection
 // Maps to SPIRIT guideline sections (§6.1).
-// Used by the Parsing Engine (Phase 5) to organize inspector data
-// into the correct protocol structure for LLM transcription.
 
 enum ProtocolSection: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
@@ -40,7 +38,6 @@ enum ProtocolSection: String, Codable, CaseIterable, Identifiable {
         }
     }
     
-    /// Which block types contribute content to this protocol section (§6.1 table).
     var sourceNodeTypes: [NodeType] {
         switch self {
         case .researchQuestion:

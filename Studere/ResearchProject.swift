@@ -3,36 +3,55 @@ import SwiftData
 
 // MARK: - ResearchProject
 // Top-level container for a study design.
-// The spec doesn't explicitly define this, but we need a grouping model
-// so users can manage multiple study designs and so progressive disclosure
-// can track completed project count (§4.5).
+//
+// KEY CHANGE: Now tracks the chosen study design type, which
+// determines the scaffold structure. The project starts empty,
+// the user picks a design type during setup, and the scaffold
+// builder populates it.
 
 @Model
 final class ResearchProject {
-    
-    // MARK: - Stored Properties
     
     var id: UUID
     var title: String
     var createdAt: Date
     var modifiedAt: Date
-    
-    /// Current status of this project
     var statusRaw: String
     
-    /// All nodes belonging to this project
+    /// The study design type chosen during setup.
+    /// Nil until the user completes the design selection step.
+    var designTypeRaw: String?
+    
     @Relationship(deleteRule: .cascade, inverse: \ResearchNode.project)
     var nodes: [ResearchNode]
     
-    /// All edges belonging to this project
     @Relationship(deleteRule: .cascade, inverse: \ResearchEdge.project)
     var edges: [ResearchEdge]
     
     // MARK: - Computed Properties
     
     var status: ProjectStatus {
-        get { ProjectStatus(rawValue: statusRaw) ?? .draft }
+        get { ProjectStatus(rawValue: statusRaw) ?? .setup }
         set { statusRaw = newValue.rawValue }
+    }
+    
+    var designType: NodeType? {
+        get {
+            guard let raw = designTypeRaw else { return nil }
+            return NodeType(rawValue: raw)
+        }
+        set { designTypeRaw = newValue?.rawValue }
+    }
+    
+    /// Whether the scaffold has been built (design type chosen + blocks created).
+    var isScaffolded: Bool {
+        designType != nil && !nodes.isEmpty
+    }
+    
+    /// The template for this project's design type.
+    var template: StudyDesignTemplate? {
+        guard let dt = designType else { return nil }
+        return StudyDesignTemplate.template(for: dt)
     }
     
     // MARK: - Initialization
@@ -42,45 +61,83 @@ final class ResearchProject {
         self.title = title
         self.createdAt = Date()
         self.modifiedAt = Date()
-        self.statusRaw = ProjectStatus.draft.rawValue
+        self.statusRaw = ProjectStatus.setup.rawValue
+        self.designTypeRaw = nil
         self.nodes = []
         self.edges = []
     }
     
-    // MARK: - Convenience Methods
+    // MARK: - Convenience
     
-    /// Touch the modification date whenever the project changes.
     func touch() {
         self.modifiedAt = Date()
     }
     
-    /// Retrieve all nodes of a given type within this project.
     func nodes(ofType type: NodeType) -> [ResearchNode] {
         nodes.filter { $0.nodeType == type }
     }
     
-    /// Check whether this project has at least one design block placed.
-    var hasDesignBlock: Bool {
-        nodes.contains { $0.nodeType.category == .design }
+    /// Find a node by its slot ID (assigned during scaffolding).
+    func node(forSlot slotID: String) -> ResearchNode? {
+        nodes.first { $0.slotID == slotID }
+    }
+    
+    /// All scaffolded nodes in template order.
+    var scaffoldedNodes: [ResearchNode] {
+        guard let template = template else { return nodes }
+        let slotOrder = template.slots.map(\.id)
+        return nodes.sorted { a, b in
+            let indexA = slotOrder.firstIndex(of: a.slotID ?? "") ?? Int.max
+            let indexB = slotOrder.firstIndex(of: b.slotID ?? "") ?? Int.max
+            return indexA < indexB
+        }
+    }
+    
+    /// Overall completion: how many required inspector fields are filled.
+    var completionProgress: (filled: Int, total: Int) {
+        var filled = 0
+        var total = 0
+        for node in nodes {
+            let required = InspectorQuestionBank.requiredKeys(for: node.nodeType)
+            total += required.count
+            filled += required.filter { key in
+                let val = node.inspectorData[key] ?? ""
+                return !val.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }.count
+        }
+        return (filled, total)
     }
 }
 
 // MARK: - ProjectStatus
 
 enum ProjectStatus: String, Codable, CaseIterable {
-    case draft              // In progress on the canvas
-    case validationReady    // Canvas complete, ready for validation
-    case validated          // Passed validation, ready for protocol generation
-    case protocolDrafted    // LLM draft generated, under review
-    case completed          // User has endorsed and exported the protocol
+    case setup              // Design type not yet chosen
+    case draft              // Scaffold built, user filling in inspector data
+    case validationReady    // All required fields filled
+    case validated          // Passed validation
+    case protocolDrafted    // LLM draft generated
+    case completed          // User has endorsed and exported
     
     var displayName: String {
         switch self {
-        case .draft:            return "Draft"
+        case .setup:            return "Setting Up"
+        case .draft:            return "In Progress"
         case .validationReady:  return "Ready for Validation"
         case .validated:        return "Validated"
         case .protocolDrafted:  return "Protocol Drafted"
         case .completed:        return "Completed"
+        }
+    }
+    
+    var iconName: String {
+        switch self {
+        case .setup:            return "wrench"
+        case .draft:            return "pencil"
+        case .validationReady:  return "checkmark.circle"
+        case .validated:        return "checkmark.seal"
+        case .protocolDrafted:  return "doc.text"
+        case .completed:        return "checkmark.seal.fill"
         }
     }
 }

@@ -1,41 +1,38 @@
 import Foundation
 
 // MARK: - NodeType
-// Represents the category of a research block on the canvas.
-// Organized into three families matching the spec's Block Palette (§4.1):
-//   - Design Blocks (study architecture)
-//   - Entity Blocks (who/what is being studied)
-//   - Method Blocks (how data is collected)
+// The kind of research component a block represents.
+// Organized into families matching the spec's Block Palette (§4.1).
 
 enum NodeType: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     
-    // MARK: Design Blocks
+    // Design Blocks — the architectural choice
     case longitudinal
     case crossSectional
     case rct
     case steppedWedge
     case adaptive
     
-    // MARK: Entity Blocks
+    // Entity Blocks — who and what
     case targetPopulation
     case controlGroup
     case intervention
     case outcomeMeasure
     
-    // MARK: Method Blocks
+    // Method Blocks — how data is gathered
     case survey
     case interview
     case biometricSampling
     
-    // MARK: Supporting Blocks (surfaced automatically by design blocks)
+    // Supporting Blocks — methodological scaffolding
     case randomizationStrategy
     case blindingProtocol
     case controlCondition
     case sampleSizeJustification
     case rationale
     
-    // MARK: - Display Properties
+    // MARK: - Display
     
     var displayName: String {
         switch self {
@@ -59,6 +56,28 @@ enum NodeType: String, Codable, CaseIterable, Identifiable {
         }
     }
     
+    var shortDescription: String {
+        switch self {
+        case .longitudinal:             return "Tracks participants over time"
+        case .crossSectional:           return "Captures a snapshot at one point in time"
+        case .rct:                      return "Randomly assigns participants to groups"
+        case .steppedWedge:             return "Clusters cross over from control to intervention"
+        case .adaptive:                 return "Design evolves based on interim results"
+        case .targetPopulation:         return "Who is being studied"
+        case .controlGroup:             return "The comparison group"
+        case .intervention:             return "What is being tested"
+        case .outcomeMeasure:           return "What is being measured"
+        case .survey:                   return "Questionnaire-based data collection"
+        case .interview:                return "Conversational data collection"
+        case .biometricSampling:        return "Biological sample collection"
+        case .randomizationStrategy:    return "How participants are assigned to groups"
+        case .blindingProtocol:         return "Who knows about group assignments"
+        case .controlCondition:         return "What the comparison group receives"
+        case .sampleSizeJustification:  return "Why this many participants"
+        case .rationale:                return "The scientific case for this study"
+        }
+    }
+    
     var category: NodeCategory {
         switch self {
         case .longitudinal, .crossSectional, .rct, .steppedWedge, .adaptive:
@@ -73,44 +92,33 @@ enum NodeType: String, Codable, CaseIterable, Identifiable {
         }
     }
     
-    /// Blocks available in the initial simplified palette (§4.5 Progressive Disclosure).
-    /// Advanced blocks unlock as users complete projects.
-    var isBasicBlock: Bool {
-        switch self {
-        case .crossSectional, .rct, .longitudinal,
-             .targetPopulation, .intervention, .outcomeMeasure, .controlGroup,
-             .survey, .interview,
-             .randomizationStrategy, .sampleSizeJustification, .rationale:
-            return true
-        default:
-            return false
-        }
-    }
+    var isDesignType: Bool { category == .design }
     
-    /// When a Design block is placed, these supporting blocks should be
-    /// prompted to the user (§4.1). Returns an empty array for non-design types.
-    var requiredDownstreamBlocks: [NodeType] {
+    /// The SF Symbol icon for this block type.
+    var iconName: String {
         switch self {
-        case .rct:
-            return [.randomizationStrategy, .blindingProtocol,
-                    .controlCondition, .outcomeMeasure, .sampleSizeJustification]
-        case .longitudinal:
-            return [.targetPopulation, .outcomeMeasure, .sampleSizeJustification]
-        case .crossSectional:
-            return [.targetPopulation, .outcomeMeasure]
-        case .steppedWedge:
-            return [.randomizationStrategy, .controlCondition,
-                    .outcomeMeasure, .sampleSizeJustification]
-        case .adaptive:
-            return [.outcomeMeasure, .sampleSizeJustification, .randomizationStrategy]
-        default:
-            return []
+        case .longitudinal:             return "chart.line.uptrend.xyaxis"
+        case .crossSectional:           return "camera.viewfinder"
+        case .rct:                      return "dice"
+        case .steppedWedge:             return "stairs"
+        case .adaptive:                 return "arrow.triangle.branch"
+        case .targetPopulation:         return "person.3"
+        case .controlGroup:             return "person.2.slash"
+        case .intervention:             return "syringe"
+        case .outcomeMeasure:           return "target"
+        case .survey:                   return "list.clipboard"
+        case .interview:                return "bubble.left.and.bubble.right"
+        case .biometricSampling:        return "cross.vial"
+        case .randomizationStrategy:    return "shuffle"
+        case .blindingProtocol:         return "eye.slash"
+        case .controlCondition:         return "arrow.left.arrow.right"
+        case .sampleSizeJustification:  return "number"
+        case .rationale:                return "lightbulb"
         }
     }
 }
 
 // MARK: - NodeCategory
-// Used for color-coding blocks on the palette and canvas.
 
 enum NodeCategory: String, Codable, CaseIterable {
     case design
@@ -127,8 +135,6 @@ enum NodeCategory: String, Codable, CaseIterable {
         }
     }
     
-    /// Color-coding per spec §4.1. Returns a named color string
-    /// to be resolved against the asset catalog or SwiftUI built-ins.
     var colorName: String {
         switch self {
         case .design:       return "designBlue"

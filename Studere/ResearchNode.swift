@@ -2,48 +2,39 @@ import Foundation
 import SwiftData
 
 // MARK: - ResearchNode
-// A single block on the canvas representing a research design component.
-// This is one of the two core SwiftData models defined in §3.1.
+// A single research component in the study design.
 //
-// The inspectorData dictionary stores all Socratic Inspector responses
-// keyed by a structured naming convention:
-//   "{nodeType}.{questionKey}" → user's answer text
-//
-// Example keys for an outcomeMeasure node:
-//   "outcomeMeasure.outcomeType"         → "Continuous"
-//   "outcomeMeasure.instrument"          → "PHQ-9 Depression Scale"
-//   "outcomeMeasure.timePoints"          → "Baseline, 6 weeks, 12 weeks"
-//   "outcomeMeasure.mcid"               → "5-point reduction"
-//   "outcomeMeasure.validityConcerns"   → "Self-report bias in..."
+// KEY CHANGES:
+//   - slotID: links this node back to its SlotDefinition in the template
+//   - isScaffolded: true if created by the scaffold builder (vs manually added)
+//   - isRequired: true if this is a required component for the design type
 
 @Model
 final class ResearchNode {
     
-    // MARK: - Stored Properties
-    
     var id: UUID
     var title: String
-    
-    /// Persisted as raw string; use the computed `nodeType` property.
     var nodeTypeRaw: String
-    
-    /// Structured Socratic Inspector responses (§3.2).
-    /// This replaces the v1.0 `specifics` field.
-    /// Keys follow the pattern: "{nodeType}.{questionKey}"
     var inspectorData: [String: String]
     
-    /// Canvas position
+    // Canvas position (for future canvas phase)
     var positionX: Double
     var positionY: Double
     
-    /// Parent project
+    // Scaffold metadata
+    /// Links this node to its SlotDefinition.id in the template.
+    var slotID: String?
+    /// True if created by ScaffoldBuilder (not manually added).
+    var isScaffolded: Bool
+    /// True if this is a required component of the study design.
+    var isRequired: Bool
+    
+    // Relationships
     var project: ResearchProject?
     
-    /// Edges originating from this node
     @Relationship(deleteRule: .cascade, inverse: \ResearchEdge.sourceNode)
     var outgoingEdges: [ResearchEdge]
     
-    /// Edges terminating at this node
     @Relationship(deleteRule: .cascade, inverse: \ResearchEdge.targetNode)
     var incomingEdges: [ResearchEdge]
     
@@ -58,29 +49,46 @@ final class ResearchNode {
         nodeType.category
     }
     
-    /// All nodes connected downstream from this one.
     var downstreamNodes: [ResearchNode] {
         outgoingEdges.compactMap { $0.targetNode }
     }
     
-    /// All nodes connected upstream to this one.
     var upstreamNodes: [ResearchNode] {
         incomingEdges.compactMap { $0.sourceNode }
     }
     
-    /// Returns inspector fields that have non-empty values.
+    /// Inspector fields that have non-empty values.
     var completedFields: [String: String] {
         inspectorData.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
     
-    /// Returns inspector field keys that are empty or missing.
-    /// Requires knowing the expected keys for this node type —
-    /// see InspectorQuestionBank for the canonical list.
-    func emptyFieldKeys(expectedKeys: [String]) -> [String] {
-        expectedKeys.filter { key in
-            guard let value = inspectorData[key] else { return true }
-            return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    /// How many required questions have been answered.
+    var completionProgress: (filled: Int, total: Int) {
+        let required = InspectorQuestionBank.requiredKeys(for: nodeType)
+        let filled = required.filter { key in
+            let val = inspectorData[key] ?? ""
+            return !val.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.count
+        return (filled, required.count)
+    }
+    
+    /// True if all required inspector fields are filled.
+    var isComplete: Bool {
+        let progress = completionProgress
+        return progress.total == 0 || progress.filled == progress.total
+    }
+    
+    /// Returns the edge types connecting this node, for display.
+    var relationshipSummary: String {
+        let incoming = incomingEdges.compactMap { edge -> String? in
+            guard let source = edge.sourceNode else { return nil }
+            return "\(source.title) → \(edge.relationshipType.displayName)"
         }
+        let outgoing = outgoingEdges.compactMap { edge -> String? in
+            guard let target = edge.targetNode else { return nil }
+            return "\(edge.relationshipType.displayName) → \(target.title)"
+        }
+        return (incoming + outgoing).joined(separator: ", ")
     }
     
     // MARK: - Initialization
@@ -97,18 +105,19 @@ final class ResearchNode {
         self.inspectorData = [:]
         self.positionX = positionX
         self.positionY = positionY
+        self.slotID = nil
+        self.isScaffolded = false
+        self.isRequired = false
         self.outgoingEdges = []
         self.incomingEdges = []
     }
     
-    // MARK: - Inspector Data Helpers
+    // MARK: - Inspector Helpers
     
-    /// Read an inspector field value by question key.
     func answer(for questionKey: String) -> String {
         inspectorData[questionKey] ?? ""
     }
     
-    /// Write an inspector field value.
     func setAnswer(_ value: String, for questionKey: String) {
         inspectorData[questionKey] = value
         project?.touch()

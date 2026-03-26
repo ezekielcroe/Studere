@@ -2,25 +2,23 @@ import SwiftUI
 import SwiftData
 
 // MARK: - ContentView
-// Phase 1 test UI: a simple NavigationSplitView for CRUD operations
-// on Projects, Nodes, and Edges. This validates the data model before
-// the canvas and full inspector are built.
-//
-// This will eventually be replaced by the three-panel layout (§4)
-// but serves as the Phase 1 deliverable.
+// Main navigation. When a new project is created, it opens
+// in the setup flow. Existing scaffolded projects open directly.
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ResearchProject.modifiedAt, order: .reverse) private var projects: [ResearchProject]
     
     @State private var selectedProject: ResearchProject?
+    @State private var showingSetup = false
+    @State private var pendingProject: ResearchProject?
     
     var body: some View {
         NavigationSplitView {
             ProjectListView(
                 projects: projects,
                 selectedProject: $selectedProject,
-                onAddProject: addProject,
+                onAddProject: createProject,
                 onDeleteProjects: deleteProjects
             )
         } detail: {
@@ -30,18 +28,25 @@ struct ContentView: View {
                 ContentUnavailableView(
                     "No Study Selected",
                     systemImage: "rectangle.3.group",
-                    description: Text("Select a study from the sidebar or create a new one to get started.")
+                    description: Text("Select a study from the sidebar or create a new one.")
                 )
+            }
+        }
+        .sheet(isPresented: $showingSetup) {
+            if let project = pendingProject {
+                StudySetupView(project: project) {
+                    showingSetup = false
+                    selectedProject = project
+                }
             }
         }
     }
     
-    // MARK: - Actions
-    
-    private func addProject() {
-        let project = ResearchProject(title: "New Study")
+    private func createProject() {
+        let project = ResearchProject()
         modelContext.insert(project)
-        selectedProject = project
+        pendingProject = project
+        showingSetup = true
     }
     
     private func deleteProjects(at offsets: IndexSet) {

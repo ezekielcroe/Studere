@@ -2,171 +2,164 @@ import SwiftUI
 import SwiftData
 
 // MARK: - ProjectDetailView
-// Phase 1 test UI: displays and manages nodes and edges within a project.
-// Validates CRUD operations, relationship integrity, and persistence.
+// Shows the scaffolded study as an ordered list of components.
+//
+// KEY CHANGES from v1:
+//   - No manual "add block" or "add edge" as primary actions
+//   - Components shown in methodological sequence (template order)
+//   - Each component shows its pre-wired connections
+//   - Completion progress is the main indicator
+//   - Tapping opens the inspector inline or as a sheet
 
 struct ProjectDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var project: ResearchProject
     
     @State private var selectedNode: ResearchNode?
-    @State private var showingAddNode = false
-    @State private var showingAddEdge = false
+    @State private var showingSetup = false
     
     var body: some View {
-        List {
-            // MARK: Project Info
-            Section("Study Details") {
-                TextField("Title", text: $project.title)
-                    .font(.title3)
-                LabeledContent("Status", value: project.status.displayName)
-                LabeledContent("Created", value: project.createdAt.formatted(date: .abbreviated, time: .omitted))
-                LabeledContent("Modified", value: project.modifiedAt.formatted(date: .abbreviated, time: .shortened))
-            }
-            
-            // MARK: Nodes
-            Section {
-                if project.nodes.isEmpty {
-                    Text("No blocks yet. Add your first research block to get started.")
-                        .foregroundStyle(.secondary)
-                        .italic()
-                } else {
-                    ForEach(nodesByCategory) { group in
-                        DisclosureGroup {
-                            ForEach(group.nodes) { node in
-                                NodeRowView(node: node)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { selectedNode = node }
-                            }
-                            .onDelete { offsets in
-                                deleteNodes(from: group.nodes, at: offsets)
-                            }
-                        } label: {
-                            Label(group.category.displayName, systemImage: iconForCategory(group.category))
-                                .font(.subheadline.weight(.semibold))
-                        }
-                    }
-                }
-            } header: {
-                HStack {
-                    Text("Research Blocks")
-                    Spacer()
-                    Button("Add Block", systemImage: "plus.square") {
-                        showingAddNode = true
-                    }
-                    .font(.caption)
-                }
-            }
-            
-            // MARK: Edges
-            Section {
-                if project.edges.isEmpty {
-                    Text("No connections yet. Add blocks first, then connect them.")
-                        .foregroundStyle(.secondary)
-                        .italic()
-                } else {
-                    ForEach(project.edges) { edge in
-                        EdgeRowView(edge: edge)
-                    }
-                    .onDelete(perform: deleteEdges)
-                }
-            } header: {
-                HStack {
-                    Text("Connections")
-                    Spacer()
-                    Button("Connect", systemImage: "arrow.triangle.branch") {
-                        showingAddEdge = true
-                    }
-                    .font(.caption)
-                    .disabled(project.nodes.count < 2)
-                }
-            }
-            
-            // MARK: Validation Summary
-            if !project.nodes.isEmpty {
-                Section("Quick Validation") {
-                    let stats = validationSummary
-                    LabeledContent("Total blocks", value: "\(project.nodes.count)")
-                    LabeledContent("Connections", value: "\(project.edges.count)")
-                    LabeledContent("Fields completed", value: "\(stats.filled) / \(stats.total)")
-                    if stats.filled < stats.total {
-                        Label("\(stats.total - stats.filled) empty required fields", systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                            .font(.caption)
-                    }
-                }
+        Group {
+            if project.isScaffolded {
+                scaffoldedView
+            } else {
+                setupPrompt
             }
         }
         .navigationTitle(project.title)
-        .sheet(isPresented: $showingAddNode) {
-            AddNodeSheet(project: project)
-        }
-        .sheet(isPresented: $showingAddEdge) {
-            AddEdgeSheet(project: project)
-        }
         .sheet(item: $selectedNode) { node in
             NodeInspectorSheet(node: node)
         }
-    }
-    
-    // MARK: - Grouped Nodes
-    
-    private var nodesByCategory: [NodeGroup] {
-        let grouped = Dictionary(grouping: project.nodes) { $0.category }
-        return NodeCategory.allCases.compactMap { category in
-            guard let nodes = grouped[category], !nodes.isEmpty else { return nil }
-            return NodeGroup(category: category, nodes: nodes)
+        .sheet(isPresented: $showingSetup) {
+            StudySetupView(project: project) {
+                showingSetup = false
+            }
         }
     }
     
-    // MARK: - Validation
+    // MARK: - Setup Prompt (for projects without a scaffold yet)
     
-    private var validationSummary: (filled: Int, total: Int) {
-        var filled = 0
-        var total = 0
-        for node in project.nodes {
-            let required = InspectorQuestionBank.requiredKeys(for: node.nodeType)
-            total += required.count
-            filled += required.filter { key in
-                let val = node.inspectorData[key] ?? ""
-                return !val.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }.count
-        }
-        return (filled, total)
-    }
-    
-    // MARK: - Actions
-    
-    private func deleteNodes(from nodes: [ResearchNode], at offsets: IndexSet) {
-        for index in offsets {
-            let node = nodes[index]
-            if selectedNode?.id == node.id { selectedNode = nil }
-            modelContext.delete(node)
-        }
-        project.touch()
-    }
-    
-    private func deleteEdges(at offsets: IndexSet) {
-        for index in offsets {
-            modelContext.delete(project.edges[index])
-        }
-        project.touch()
-    }
-    
-    private func iconForCategory(_ category: NodeCategory) -> String {
-        switch category {
-        case .design:       return "rectangle.3.group.bubble"
-        case .entity:       return "person.2"
-        case .method:       return "wrench.and.screwdriver"
-        case .supporting:   return "puzzlepiece"
+    private var setupPrompt: some View {
+        ContentUnavailableView {
+            Label("Choose a Study Design", systemImage: "rectangle.3.group")
+        } description: {
+            Text("Select a study design type to get started. The app will set up all required components and connections.")
+        } actions: {
+            Button {
+                showingSetup = true
+            } label: {
+                Label("Set Up Study", systemImage: "sparkles")
+            }
+            .buttonStyle(.borderedProminent)
         }
     }
-}
-
-// MARK: - NodeGroup (for sectioned display)
-
-struct NodeGroup: Identifiable {
-    let category: NodeCategory
-    let nodes: [ResearchNode]
-    var id: String { category.rawValue }
+    
+    // MARK: - Scaffolded Study View
+    
+    private var scaffoldedView: some View {
+        List {
+            // Study overview
+            Section {
+                overviewCard
+            }
+            
+            // Component list in template order
+            Section {
+                ForEach(project.scaffoldedNodes) { node in
+                    ComponentRowView(node: node)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedNode = node }
+                }
+            } header: {
+                HStack {
+                    Text("Study Components")
+                    Spacer()
+                    let progress = project.completionProgress
+                    Text("\(progress.filled)/\(progress.total) fields")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("Tap any component to answer its inspector questions. All connections have been set up based on your \(project.designType?.displayName ?? "study") design.")
+                    .font(.caption)
+            }
+            
+            // Connections (read-only, for reference)
+            if !project.edges.isEmpty {
+                Section("Connections") {
+                    ForEach(project.edges) { edge in
+                        ConnectionRowView(edge: edge)
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Overview Card
+    
+    private var overviewCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                if let designType = project.designType {
+                    Image(systemName: designType.iconName)
+                        .font(.title2)
+                        .foregroundStyle(Color.accentColor)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    TextField("Study Title", text: $project.title)
+                        .font(.title3.weight(.semibold))
+                        .textFieldStyle(.plain)
+                    
+                    Text(project.designType?.displayName ?? "Unknown Design")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            
+            // Progress bar
+            let progress = project.completionProgress
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(
+                    value: progress.total > 0 ? Double(progress.filled) / Double(progress.total) : 0
+                )
+                .tint(progressColor(filled: progress.filled, total: progress.total))
+                
+                HStack {
+                    Text(progressLabel(filled: progress.filled, total: progress.total))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    Spacer()
+                    
+                    Text(project.status.displayName)
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color.accentColor.opacity(0.12))
+                        )
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+    
+    // MARK: - Helpers
+    
+    private func progressColor(filled: Int, total: Int) -> Color {
+        guard total > 0 else { return .gray }
+        let ratio = Double(filled) / Double(total)
+        if ratio >= 1.0 { return .green }
+        if ratio >= 0.5 { return .accentColor }
+        return .orange
+    }
+    
+    private func progressLabel(filled: Int, total: Int) -> String {
+        guard total > 0 else { return "No fields to fill" }
+        if filled == total { return "All required fields completed" }
+        return "\(filled) of \(total) required fields completed"
+    }
 }

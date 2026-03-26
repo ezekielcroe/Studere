@@ -1,7 +1,7 @@
 import SwiftUI
 
 // MARK: - ProjectListView
-// Sidebar list of all research projects. Phase 1 test UI.
+// Sidebar showing all research projects with their design type and progress.
 
 struct ProjectListView: View {
     let projects: [ResearchProject]
@@ -16,14 +16,29 @@ struct ProjectListView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(project.title)
                             .font(.headline)
-                        HStack {
-                            Text(project.status.displayName)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        
+                        HStack(spacing: 8) {
+                            if let designType = project.designType {
+                                Label(designType.displayName, systemImage: designType.iconName)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Label("Not set up", systemImage: "wrench")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            
                             Spacer()
-                            Text("\(project.nodes.count) blocks")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                            
+                            if project.isScaffolded {
+                                let progress = project.completionProgress
+                                if progress.total > 0 {
+                                    Text("\(Int(Double(progress.filled) / Double(progress.total) * 100))%")
+                                        .font(.caption2.weight(.medium))
+                                        .foregroundStyle(progress.filled == progress.total ? .green : .secondary)
+                                }
+                            }
                         }
                     }
                     .padding(.vertical, 2)
