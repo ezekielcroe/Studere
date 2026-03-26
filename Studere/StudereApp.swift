@@ -1,32 +1,21 @@
-//
-//  StudereApp.swift
-//  Studere
-//
-//  Created by Zhi Zheng Yeo on 26/3/26.
-//
-
 import SwiftUI
 import SwiftData
 
+// MARK: - Studere App Entry Point
+// Multi-platform SwiftUI app targeting macOS 14+ and iPadOS 17+.
+// Uses SwiftData for local-first persistence of the research design DAG.
+
 @main
 struct StudereApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
-
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(sharedModelContainer)
+        .modelContainer(for: [
+            ResearchProject.self,
+            ResearchNode.self,
+            ResearchEdge.self
+        ])
     }
 }
