@@ -4,10 +4,6 @@ import SwiftData
 // MARK: - ResearchProject
 // Top-level container for a study design.
 //
-// KEY CHANGE: Now tracks the chosen study design type, which
-// determines the scaffold structure. The project starts empty,
-// the user picks a design type during setup, and the scaffold
-// builder populates it.
 
 @Model
 final class ResearchProject {
@@ -23,10 +19,10 @@ final class ResearchProject {
     var designTypeRaw: String?
     
     @Relationship(deleteRule: .cascade, inverse: \ResearchNode.project)
-    var nodes: [ResearchNode]
+    var nodes: [ResearchNode]?
     
     @Relationship(deleteRule: .cascade, inverse: \ResearchEdge.project)
-    var edges: [ResearchEdge]
+    var edges: [ResearchEdge]?
     
     // MARK: - Computed Properties
     
@@ -45,7 +41,7 @@ final class ResearchProject {
     
     /// Whether the scaffold has been built (design type chosen + blocks created).
     var isScaffolded: Bool {
-        designType != nil && !nodes.isEmpty
+        designType != nil && !(nodes ?? []).isEmpty
     }
     
     /// The template for this project's design type.
@@ -63,8 +59,7 @@ final class ResearchProject {
         self.modifiedAt = Date()
         self.statusRaw = ProjectStatus.setup.rawValue
         self.designTypeRaw = nil
-        self.nodes = []
-        self.edges = []
+        
     }
     
     // MARK: - Convenience
@@ -74,19 +69,20 @@ final class ResearchProject {
     }
     
     func nodes(ofType type: NodeType) -> [ResearchNode] {
-        nodes.filter { $0.nodeType == type }
+        (nodes ?? []).filter { $0.nodeType == type }
     }
     
     /// Find a node by its slot ID (assigned during scaffolding).
     func node(forSlot slotID: String) -> ResearchNode? {
-        nodes.first { $0.slotID == slotID }
+        (nodes ?? []).first { $0.slotID == slotID }
     }
     
     /// All scaffolded nodes in template order.
     var scaffoldedNodes: [ResearchNode] {
-        guard let template = template else { return nodes }
+        let safeNodes = nodes ?? []
+        guard let template = template else { return safeNodes }
         let slotOrder = template.slots.map(\.id)
-        return nodes.sorted { a, b in
+        return safeNodes.sorted { a, b in
             let indexA = slotOrder.firstIndex(of: a.slotID ?? "") ?? Int.max
             let indexB = slotOrder.firstIndex(of: b.slotID ?? "") ?? Int.max
             return indexA < indexB
@@ -97,7 +93,7 @@ final class ResearchProject {
     var completionProgress: (filled: Int, total: Int) {
         var filled = 0
         var total = 0
-        for node in nodes {
+        for node in (nodes ?? []) {
             let required = InspectorQuestionBank.requiredKeys(for: node.nodeType)
             total += required.count
             filled += required.filter { key in

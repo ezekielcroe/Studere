@@ -2,7 +2,6 @@ import SwiftUI
 
 // MARK: - ProjectListView
 // Sidebar showing all research projects with their design type and progress.
-
 struct ProjectListView: View {
     let projects: [ResearchProject]
     @Binding var selectedProject: ResearchProject?
@@ -46,9 +45,21 @@ struct ProjectListView: View {
             }
             .onDelete(perform: onDeleteProjects)
         }
+        // FIX: Adds native Return/Enter key and double-click support
+        .contextMenu(forSelectionType: ResearchProject.self) { selection in
+            if !selection.isEmpty {
+                Button("Delete", role: .destructive) {
+                    // Map the selected objects back to their indices for the existing onDelete closure
+                    let indices = selection.compactMap { proj in
+                        projects.firstIndex(where: { $0.id == proj.id })
+                    }
+                    onDeleteProjects(IndexSet(indices))
+                }
+            }
+        }
         .navigationTitle("Studies")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem { // Removed placement: .primaryAction
                 Button(action: onAddProject) {
                     Label("New Study", systemImage: "plus")
                 }

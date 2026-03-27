@@ -18,7 +18,7 @@ final class ResearchEdge {
     var project: ResearchProject?
     
     /// True if created by ScaffoldBuilder (vs manually added).
-    var isScaffolded: Bool
+    var isScaffolded: Bool = false
     
     // MARK: - Computed Properties
     

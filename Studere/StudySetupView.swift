@@ -1,24 +1,28 @@
 import SwiftUI
-import SwiftData
 
 // MARK: - StudySetupView
 // Guided study creation flow. The user:
 //   1. Names their study
 //   2. Picks a study design type (with descriptions)
 //   3. Makes any required choices (e.g., data collection method)
-//   4. The scaffold is built automatically
+//   4. Passes the raw choices back to the parent view to build the scaffold.
 
 struct StudySetupView: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     
-    let project: ResearchProject
-    var onComplete: () -> Void
+    // Pure data closure: returns Title, Template, and user's Slot Choices
+    var onComplete: (String, StudyDesignTemplate, ScaffoldBuilder.SlotChoices) -> Void
     
-    @State private var studyTitle: String = ""
+    @State private var studyTitle: String
     @State private var selectedDesign: NodeType?
     @State private var slotChoices: ScaffoldBuilder.SlotChoices = [:]
     @State private var currentStep: SetupStep = .nameAndDesign
+    
+    // Accept an initial title (if setting up an existing empty project), but no SwiftData objects
+    init(initialTitle: String = "", onComplete: @escaping (String, StudyDesignTemplate, ScaffoldBuilder.SlotChoices) -> Void) {
+        self.onComplete = onComplete
+        _studyTitle = State(initialValue: initialTitle)
+    }
     
     enum SetupStep {
         case nameAndDesign
@@ -205,7 +209,6 @@ struct StudySetupView: View {
     }
     
     // MARK: - Step 2: Choices
-    // Broken into extracted sub-views so the compiler can type-check each piece.
     
     private var choicesStep: some View {
         ScrollView {
@@ -302,7 +305,6 @@ struct StudySetupView: View {
     }
     
     // MARK: - Step 3: Review & Build
-    // Also extracted into sub-views for compiler performance.
     
     private var reviewStep: some View {
         ScrollView {
@@ -389,7 +391,9 @@ struct StudySetupView: View {
             Spacer()
             
             Button {
-                buildScaffold()
+                guard let template = selectedTemplate else { return }
+                // ONLY PASS DATA BACK - NO SWIFTDATA WORK HERE
+                onComplete(studyTitle, template, slotChoices)
             } label: {
                 Label("Create Study", systemImage: "sparkles")
             }
@@ -415,22 +419,6 @@ struct StudySetupView: View {
         case .method:       return .orange
         case .supporting:   return .purple
         }
-    }
-    
-    private func buildScaffold() {
-        guard let template = selectedTemplate else { return }
-        
-        project.title = studyTitle
-        
-        ScaffoldBuilder.buildScaffold(
-            from: template,
-            choices: slotChoices,
-            for: project,
-            in: modelContext
-        )
-        
-        project.status = .draft
-        onComplete()
     }
 }
 

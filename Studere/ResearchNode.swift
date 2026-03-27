@@ -4,10 +4,6 @@ import SwiftData
 // MARK: - ResearchNode
 // A single research component in the study design.
 //
-// KEY CHANGES:
-//   - slotID: links this node back to its SlotDefinition in the template
-//   - isScaffolded: true if created by the scaffold builder (vs manually added)
-//   - isRequired: true if this is a required component for the design type
 
 @Model
 final class ResearchNode {
@@ -25,18 +21,19 @@ final class ResearchNode {
     /// Links this node to its SlotDefinition.id in the template.
     var slotID: String?
     /// True if created by ScaffoldBuilder (not manually added).
-    var isScaffolded: Bool
+    var isScaffolded: Bool = false
     /// True if this is a required component of the study design.
-    var isRequired: Bool
+    var isRequired: Bool = false
     
     // Relationships
     var project: ResearchProject?
     
+    // CRITICAL FIX: Relationships must be Optional in SwiftData
     @Relationship(deleteRule: .cascade, inverse: \ResearchEdge.sourceNode)
-    var outgoingEdges: [ResearchEdge]
+    var outgoingEdges: [ResearchEdge]?
     
     @Relationship(deleteRule: .cascade, inverse: \ResearchEdge.targetNode)
-    var incomingEdges: [ResearchEdge]
+    var incomingEdges: [ResearchEdge]?
     
     // MARK: - Computed Properties
     
@@ -50,11 +47,11 @@ final class ResearchNode {
     }
     
     var downstreamNodes: [ResearchNode] {
-        outgoingEdges.compactMap { $0.targetNode }
+        (outgoingEdges ?? []).compactMap { $0.targetNode }
     }
     
     var upstreamNodes: [ResearchNode] {
-        incomingEdges.compactMap { $0.sourceNode }
+        (incomingEdges ?? []).compactMap { $0.sourceNode }
     }
     
     /// Inspector fields that have non-empty values.
@@ -80,11 +77,11 @@ final class ResearchNode {
     
     /// Returns the edge types connecting this node, for display.
     var relationshipSummary: String {
-        let incoming = incomingEdges.compactMap { edge -> String? in
+        let incoming = (incomingEdges ?? []).compactMap { edge -> String? in
             guard let source = edge.sourceNode else { return nil }
             return "\(source.title) → \(edge.relationshipType.displayName)"
         }
-        let outgoing = outgoingEdges.compactMap { edge -> String? in
+        let outgoing = (outgoingEdges ?? []).compactMap { edge -> String? in
             guard let target = edge.targetNode else { return nil }
             return "\(edge.relationshipType.displayName) → \(target.title)"
         }
@@ -108,8 +105,7 @@ final class ResearchNode {
         self.slotID = nil
         self.isScaffolded = false
         self.isRequired = false
-        self.outgoingEdges = []
-        self.incomingEdges = []
+        
     }
     
     // MARK: - Inspector Helpers

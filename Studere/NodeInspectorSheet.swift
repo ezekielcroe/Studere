@@ -205,7 +205,11 @@ struct NodeInspectorSheet: View {
         Binding(
             get: { node.inspectorData[question.key] ?? "" },
             set: { newValue in
-                node.inspectorData[question.key] = newValue
+                // CRITICAL FIX: Copy, update, and reassign to avoid SwiftData dictionary crashes
+                var updatedData = node.inspectorData
+                updatedData[question.key] = newValue
+                node.inspectorData = updatedData
+                
                 node.project?.touch()
             }
         )
@@ -223,7 +227,7 @@ struct NodeInspectorSheet: View {
 
 // MARK: - QuestionFieldView
 // Each field tracks its own focus state for the highlight ring.
-// Tab navigation between TextEditors is handled natively by macOS.
+// Tab navigation between TextFields is handled natively by macOS.
 
 struct QuestionFieldView: View {
     let question: InspectorQuestion
@@ -255,11 +259,12 @@ struct QuestionFieldView: View {
                             )
                     }
                     
-                    TextEditor(text: $answer)
+                    // REPLACED TextEditor WITH TextField FOR NATIVE TAB/RETURN SUPPORT
+                    TextField("Enter your answer...", text: $answer, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .lineLimit(3...10)
                         .font(.body)
-                        .frame(minHeight: 60)
-                        .scrollContentBackground(.hidden)
-                        .padding(8)
+                        .padding(10)
                         .focused($isFieldFocused)
                         .background(
                             RoundedRectangle(cornerRadius: 8)

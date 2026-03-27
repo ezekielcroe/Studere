@@ -86,6 +86,14 @@ struct ScaffoldBuilder {
         project.designTypeRaw = template.designType.rawValue
         project.touch()
         
+        // FIX: Force an explicit save to solidify relationship inverses
+        // and assign permanent PersistentIdentifiers to the newly created graph.
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to save scaffolded project graph: \(error.localizedDescription)")
+        }
+        
         return slotToNode
     }
     
