@@ -2,33 +2,112 @@ import SwiftUI
 
 // MARK: - NodeInspectorSheet
 // Socratic Inspector for a single research component.
-// Presents the structured question sequence and persists answers.
-// Mostly unchanged from v1 — the question bank drives it.
+//
+// Keyboard:
+//   Tab       — Move between question fields (native macOS behavior)
+//   ⌘S        — Save and close
+//   Escape    — Close (native sheet behavior)
+//   ⌘]        — Next component
+//   ⌘[        — Previous component
 
 struct NodeInspectorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var node: ResearchNode
     
+    /// All nodes in template order, for prev/next navigation.
+    var allNodes: [ResearchNode] = []
+    /// Callback to switch to a different node.
+    var onNavigate: ((ResearchNode) -> Void)?
+    /// Callback to trigger an explicit save.
+    var onSave: (() -> Void)?
+    
+    private var questions: [InspectorQuestion] {
+        InspectorQuestionBank.questions(for: node.nodeType)
+    }
+    
+    private var currentIndex: Int? {
+        allNodes.firstIndex(where: { $0.id == node.id })
+    }
+    
+    private var previousNode: ResearchNode? {
+        guard let idx = currentIndex, idx > 0 else { return nil }
+        return allNodes[idx - 1]
+    }
+    
+    private var nextNode: ResearchNode? {
+        guard let idx = currentIndex, idx < allNodes.count - 1 else { return nil }
+        return allNodes[idx + 1]
+    }
+    
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    headerSection
-                    Divider()
-                    questionsSection
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        headerSection
+                        Divider()
+                        questionsSection
+                    }
+                    .padding()
                 }
-                .padding()
             }
             .navigationTitle("Inspector")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
+            .toolbar { toolbarContent }
+            // Keyboard shortcuts via hidden buttons
+            .background { hiddenShortcuts }
         }
         #if os(macOS)
-        .frame(minWidth: 500, minHeight: 600)
+        .frame(minWidth: 520, minHeight: 620)
         #endif
+    }
+    
+    // MARK: - Toolbar
+    
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .cancellationAction) {
+            componentNavigator
+        }
+        ToolbarItemGroup(placement: .confirmationAction) {
+            Button("Save & Close") { saveAndClose() }
+                .help("Save and close (⌘S)")
+        }
+    }
+    
+    private var componentNavigator: some View {
+        HStack(spacing: 4) {
+            Button { navigatePrevious() } label: {
+                Image(systemName: "chevron.up")
+            }
+            .disabled(previousNode == nil)
+            .help("Previous component (⌘[)")
+            
+            Button { navigateNext() } label: {
+                Image(systemName: "chevron.down")
+            }
+            .disabled(nextNode == nil)
+            .help("Next component (⌘])")
+            
+            if let idx = currentIndex {
+                Text("\(idx + 1)/\(allNodes.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var hiddenShortcuts: some View {
+        Button("", action: saveAndClose)
+            .keyboardShortcut("s", modifiers: .command)
+            .hidden()
+        Button("", action: navigateNext)
+            .keyboardShortcut("]", modifiers: .command)
+            .hidden()
+        Button("", action: navigatePrevious)
+            .keyboardShortcut("[", modifiers: .command)
+            .hidden()
     }
     
     // MARK: - Header
@@ -57,14 +136,12 @@ struct NodeInspectorSheet: View {
                 }
             }
             
-            // Connection context
             if !node.relationshipSummary.isEmpty {
                 Text(node.relationshipSummary)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
             
-            // Completion progress
             let progress = node.completionProgress
             if progress.total > 0 {
                 HStack(spacing: 4) {
@@ -75,30 +152,51 @@ struct NodeInspectorSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            
+            #if os(macOS)
+            Text("Tab between fields · ⌘S save & close · ⌘[ ⌘] switch components")
+                .font(.caption2)
+                .foregroundStyle(.quaternary)
+            #endif
         }
     }
     
     // MARK: - Questions
     
+    @ViewBuilder
     private var questionsSection: some View {
-        let questions = InspectorQuestionBank.questions(for: node.nodeType)
-        
-        return Group {
-            if questions.isEmpty {
-                Text("No inspector questions defined for this block type yet.")
-                    .foregroundStyle(.secondary)
-                    .italic()
-                    .padding()
-            } else {
-                ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
-                    QuestionFieldView(
-                        question: question,
-                        questionNumber: index + 1,
-                        answer: bindingForQuestion(question)
-                    )
-                }
+        if questions.isEmpty {
+            Text("No inspector questions defined for this block type yet.")
+                .foregroundStyle(.secondary)
+                .italic()
+                .padding()
+        } else {
+            ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
+                QuestionFieldView(
+                    question: question,
+                    questionNumber: index + 1,
+                    answer: bindingForQuestion(question)
+                )
+                .id(question.key)
             }
         }
+    }
+    
+    // MARK: - Actions
+    
+    private func saveAndClose() {
+        onSave?()
+        dismiss()
+    }
+    
+    private func navigateNext() {
+        guard let next = nextNode else { return }
+        onNavigate?(next)
+    }
+    
+    private func navigatePrevious() {
+        guard let prev = previousNode else { return }
+        onNavigate?(prev)
     }
     
     // MARK: - Helpers
@@ -124,12 +222,15 @@ struct NodeInspectorSheet: View {
 }
 
 // MARK: - QuestionFieldView
+// Each field tracks its own focus state for the highlight ring.
+// Tab navigation between TextEditors is handled natively by macOS.
 
 struct QuestionFieldView: View {
     let question: InspectorQuestion
     let questionNumber: Int
     @Binding var answer: String
     
+    @FocusState private var isFieldFocused: Bool
     @State private var showingHelp = false
     
     var body: some View {
@@ -141,33 +242,7 @@ struct QuestionFieldView: View {
                     .frame(width: 24, alignment: .trailing)
                 
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(question.prompt)
-                            .font(.subheadline.weight(.medium))
-                        
-                        if !question.isRequired {
-                            Text("optional")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.secondary.opacity(0.15))
-                                )
-                        }
-                        
-                        if question.helpText != nil {
-                            Button {
-                                withAnimation { showingHelp.toggle() }
-                            } label: {
-                                Image(systemName: showingHelp ? "questionmark.circle.fill" : "questionmark.circle")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                    questionHeader
                     
                     if showingHelp, let helpText = question.helpText {
                         Text(helpText)
@@ -185,21 +260,57 @@ struct QuestionFieldView: View {
                         .frame(minHeight: 60)
                         .scrollContentBackground(.hidden)
                         .padding(8)
+                        .focused($isFieldFocused)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.gray.opacity(0.12))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
-                                .stroke(
-                                    answer.isEmpty && question.isRequired
-                                        ? Color.orange.opacity(0.4)
-                                        : Color.clear,
-                                    lineWidth: 1
-                                )
+                                .stroke(fieldStrokeColor, lineWidth: isFieldFocused ? 1.5 : 1)
                         )
                 }
             }
         }
+    }
+    
+    private var questionHeader: some View {
+        HStack {
+            Text(question.prompt)
+                .font(.subheadline.weight(.medium))
+            
+            if !question.isRequired {
+                Text("optional")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.15))
+                    )
+            }
+            
+            if question.helpText != nil {
+                Button {
+                    withAnimation { showingHelp.toggle() }
+                } label: {
+                    Image(systemName: showingHelp ? "questionmark.circle.fill" : "questionmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+    
+    private var fieldStrokeColor: Color {
+        if isFieldFocused {
+            return Color.accentColor.opacity(0.6)
+        }
+        if answer.isEmpty && question.isRequired {
+            return Color.orange.opacity(0.4)
+        }
+        return Color.clear
     }
 }

@@ -4,18 +4,18 @@ import SwiftData
 // MARK: - ProjectDetailView
 // Shows the scaffolded study as an ordered list of components.
 //
-// KEY CHANGES from v1:
-//   - No manual "add block" or "add edge" as primary actions
-//   - Components shown in methodological sequence (template order)
-//   - Each component shows its pre-wired connections
-//   - Completion progress is the main indicator
-//   - Tapping opens the inspector inline or as a sheet
+// Keyboard navigation:
+//   ↑/↓     — Move selection between components (native List behavior)
+//   Return  — Open the inspector for the selected component
+//   ⌘S      — Save (handled by parent ContentView)
 
 struct ProjectDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var project: ResearchProject
+    var onSave: (() -> Void)?
     
-    @State private var selectedNode: ResearchNode?
+    @State private var inspectorNode: ResearchNode?
+    @State private var selectedNodeID: ResearchNode.ID?
     @State private var showingSetup = false
     
     var body: some View {
@@ -27,8 +27,24 @@ struct ProjectDetailView: View {
             }
         }
         .navigationTitle(project.title)
-        .sheet(item: $selectedNode) { node in
-            NodeInspectorSheet(node: node)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    onSave?()
+                } label: {
+                    Label("Save", systemImage: "square.and.arrow.down")
+                }
+                .keyboardShortcut("s", modifiers: .command)
+                .help("Save (⌘S)")
+            }
+        }
+        .sheet(item: $inspectorNode) { node in
+            NodeInspectorSheet(
+                node: node,
+                allNodes: project.scaffoldedNodes,
+                onNavigate: navigateToNode,
+                onSave: onSave
+            )
         }
         .sheet(isPresented: $showingSetup) {
             StudySetupView(project: project) {
@@ -37,7 +53,7 @@ struct ProjectDetailView: View {
         }
     }
     
-    // MARK: - Setup Prompt (for projects without a scaffold yet)
+    // MARK: - Setup Prompt
     
     private var setupPrompt: some View {
         ContentUnavailableView {
@@ -57,18 +73,17 @@ struct ProjectDetailView: View {
     // MARK: - Scaffolded Study View
     
     private var scaffoldedView: some View {
-        List {
-            // Study overview
+        List(selection: $selectedNodeID) {
             Section {
                 overviewCard
             }
             
-            // Component list in template order
             Section {
                 ForEach(project.scaffoldedNodes) { node in
                     ComponentRowView(node: node)
+                        .tag(node.id)
                         .contentShape(Rectangle())
-                        .onTapGesture { selectedNode = node }
+                        .onTapGesture { openInspector(for: node) }
                 }
             } header: {
                 HStack {
@@ -80,11 +95,9 @@ struct ProjectDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("Tap any component to answer its inspector questions. All connections have been set up based on your \(project.designType?.displayName ?? "study") design.")
-                    .font(.caption)
+                footerText
             }
             
-            // Connections (read-only, for reference)
             if !project.edges.isEmpty {
                 Section("Connections") {
                     ForEach(project.edges) { edge in
@@ -92,6 +105,27 @@ struct ProjectDetailView: View {
                     }
                 }
             }
+        }
+        // Return key opens the inspector for the keyboard-selected row
+        .onKeyPress(.return) {
+            if let nodeID = selectedNodeID,
+               let node = project.scaffoldedNodes.first(where: { $0.id == nodeID }) {
+                openInspector(for: node)
+                return .handled
+            }
+            return .ignored
+        }
+    }
+    
+    private var footerText: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Tap any component to answer its inspector questions.")
+                .font(.caption)
+            #if os(macOS)
+            Text("Use ↑↓ to navigate, Return to open, ⌘S to save.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            #endif
         }
     }
     
@@ -110,6 +144,7 @@ struct ProjectDetailView: View {
                     TextField("Study Title", text: $project.title)
                         .font(.title3.weight(.semibold))
                         .textFieldStyle(.plain)
+                        .onSubmit { onSave?() }
                     
                     Text(project.designType?.displayName ?? "Unknown Design")
                         .font(.subheadline)
@@ -117,7 +152,6 @@ struct ProjectDetailView: View {
                 }
             }
             
-            // Progress bar
             let progress = project.completionProgress
             VStack(alignment: .leading, spacing: 4) {
                 ProgressView(
@@ -145,6 +179,18 @@ struct ProjectDetailView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+    
+    // MARK: - Actions
+    
+    private func openInspector(for node: ResearchNode) {
+        inspectorNode = node
+    }
+    
+    /// Called from the inspector's next/previous buttons to switch
+    /// to a different component without closing the sheet.
+    private func navigateToNode(_ node: ResearchNode) {
+        inspectorNode = node
     }
     
     // MARK: - Helpers
