@@ -2,10 +2,17 @@ import SwiftUI
 
 // MARK: - ProjectListView
 // Sidebar showing all research projects with their design type and progress.
+//
+// Actions:
+//   New Study       — creates a blank project and opens setup
+//   Duplicate Study — deep copies the selected project
+//   Delete Study    — removes the project and all its data
+
 struct ProjectListView: View {
     let projects: [ResearchProject]
     @Binding var selectedProject: ResearchProject?
     var onAddProject: () -> Void
+    var onDuplicateProject: ((ResearchProject) -> Void)?
     var onDeleteProjects: (IndexSet) -> Void
     
     var body: some View {
@@ -45,11 +52,17 @@ struct ProjectListView: View {
             }
             .onDelete(perform: onDeleteProjects)
         }
-        // FIX: Adds native Return/Enter key and double-click support
         .contextMenu(forSelectionType: ResearchProject.self) { selection in
-            if !selection.isEmpty {
+            if let project = selection.first {
+                Button {
+                    onDuplicateProject?(project)
+                } label: {
+                    Label("Duplicate", systemImage: "doc.on.doc")
+                }
+                
+                Divider()
+                
                 Button("Delete", role: .destructive) {
-                    // Map the selected objects back to their indices for the existing onDelete closure
                     let indices = selection.compactMap { proj in
                         projects.firstIndex(where: { $0.id == proj.id })
                     }
@@ -59,10 +72,21 @@ struct ProjectListView: View {
         }
         .navigationTitle("Studies")
         .toolbar {
-            ToolbarItem { // Removed placement: .primaryAction
+            ToolbarItemGroup {
                 Button(action: onAddProject) {
                     Label("New Study", systemImage: "plus")
                 }
+                .help("Create a new study (⌘N)")
+                
+                Button {
+                    if let project = selectedProject {
+                        onDuplicateProject?(project)
+                    }
+                } label: {
+                    Label("Duplicate", systemImage: "doc.on.doc")
+                }
+                .help("Duplicate selected study (⌘D)")
+                .disabled(selectedProject == nil)
             }
         }
     }

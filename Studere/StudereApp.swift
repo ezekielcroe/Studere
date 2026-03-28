@@ -2,10 +2,10 @@ import SwiftUI
 import SwiftData
 
 // MARK: - Focused Values
-// Step 1: Define the scene-scoped values using the modern @Entry macro.
-// This allows the active window to communicate its capabilities up to the App menu.
+// Scene-scoped actions that menu commands can invoke.
 extension FocusedValues {
     @Entry var createNewProjectAction: (() -> Void)?
+    @Entry var duplicateProjectAction: (() -> Void)?
 }
 
 // MARK: - App Entry Point
@@ -21,7 +21,6 @@ struct StudereApp: App {
             ResearchNode.self,
             ResearchEdge.self
         ])
-        // Step 4: Wire up the commands to the WindowGroup
         .commands {
             StudereCommands()
         }
@@ -29,11 +28,9 @@ struct StudereApp: App {
 }
 
 // MARK: - Menu Commands
-// Step 3: Consume the focused values to build the actual menu items.
 struct StudereCommands: Commands {
-    // FIX: Always read from @FocusedValue here, which automatically
-    // captures the scene-scoped value we will publish from ContentView.
     @FocusedValue(\.createNewProjectAction) private var createNewProject
+    @FocusedValue(\.duplicateProjectAction) private var duplicateProject
     
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -41,8 +38,13 @@ struct StudereCommands: Commands {
                 createNewProject?()
             }
             .keyboardShortcut("n", modifiers: .command)
-            // Automatically grays out the menu item if no window is active
             .disabled(createNewProject == nil)
+            
+            Button("Duplicate Study") {
+                duplicateProject?()
+            }
+            .keyboardShortcut("d", modifiers: .command)
+            .disabled(duplicateProject == nil)
         }
     }
 }

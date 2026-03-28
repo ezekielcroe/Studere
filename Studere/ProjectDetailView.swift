@@ -4,17 +4,34 @@ import SwiftData
 // MARK: - ProjectDetailView
 // Shows the scaffolded study as an ordered list of components.
 //
+// Toolbar layout (consolidated):
+//   LEFT:   Validate | Add Component | Graph View
+//   RIGHT:  Export Raw (menu) | Draft Protocol | (Endorse+Export lives in ProtocolDraftView)
+//
+// The "Draft Protocol" button is disabled until validation passes.
 
 struct ProjectDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var project: ResearchProject
     
+    // MARK: - State
+    
     @State private var selectedNode: ResearchNode?
     @State private var showingSetup = false
-        
+    @State private var showingDraftView = false
+    @State private var showingValidation = false
+    @State private var showingAddComponent = false
+    @State private var showingGraph = false
+    
+    // Export state
     @State private var showingExporter = false
     @State private var selectedExportFormat: ExportFormat = .markdown
     @State private var documentToExport: StudyExportDocument?
+    
+    // Validation state
+    @State private var validationReport: ValidationService.Report?
+    
+    // MARK: - Body
     
     var body: some View {
         Group {
@@ -25,25 +42,10 @@ struct ProjectDetailView: View {
             }
         }
         .navigationTitle(project.title)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    ForEach(ExportFormat.allCases) { format in
-                        Button {
-                            selectedExportFormat = format
-                            documentToExport = StudyExportDocument(project: project, format: format)
-                            showingExporter = true
-                        } label: {
-                            Label("Export as \(format.rawValue)", systemImage: "arrow.down.doc")
-                        }
-                    }
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                }
-                .disabled(!project.isScaffolded) // Can't export an empty setup
-            }
-        }
-        // NEW: System File Exporter Dialog
+        .toolbar { consolidatedToolbar }
+        
+        // MARK: - Sheet Modifiers
+        
         .fileExporter(
             isPresented: $showingExporter,
             document: documentToExport,
@@ -57,6 +59,42 @@ struct ProjectDetailView: View {
                 print("Export failed: \(error.localizedDescription)")
             }
         }
+        .sheet(isPresented: $showingDraftView) {
+            ProtocolDraftView(project: project)
+        }
+        .sheet(isPresented: $showingValidation) {
+            if let report = validationReport {
+                ValidationReportView(
+                    report: report,
+                    onNavigateToNode: { node in
+                        selectedNode = node
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showingAddComponent) {
+            AddComponentSheet(
+                project: project,
+                onComponentAdded: { newNode in
+                    // Open the inspector for the newly added node
+                    selectedNode = newNode
+                }
+            )
+        }
+        .sheet(isPresented: $showingGraph) {
+            StudyGraphView(
+                project: project,
+                onSelectNode: { node in
+                    selectedNode = node
+                }
+            )
+        }
+        // Keyboard shortcut: ⌘⇧V for Validate
+        .background {
+            Button("", action: runValidation)
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .hidden()
+        }
         .inspector(isPresented: Binding(
             get: { selectedNode != nil },
             set: { isShowing in
@@ -68,12 +106,13 @@ struct ProjectDetailView: View {
                     node: node,
                     allNodes: project.scaffoldedNodes,
                     onNavigate: { nextNode in
-                        // Switch the selected node to trigger the new inspector pane
                         selectedNode = nextNode
                     },
                     onSave: {
-                        // Safely commit the changes to the database
                         try? modelContext.save()
+                    },
+                    onClose: {
+                        selectedNode = nil
                     }
                 )
                 .inspectorColumnWidth(min: 300, ideal: 350, max: 500)
@@ -82,21 +121,14 @@ struct ProjectDetailView: View {
         .sheet(isPresented: $showingSetup) {
             StudySetupView(initialTitle: project.title) { title, template, choices in
                 showingSetup = false
-                
-                // 1. Update the existing project
                 project.title = title
-                
-                // 2. Build the scaffold into this project
                 ScaffoldBuilder.buildScaffold(
                     from: template,
                     choices: choices,
                     for: project,
                     in: modelContext
                 )
-                
                 project.status = .draft
-                
-                // 3. Save the changes
                 do {
                     try modelContext.save()
                 } catch {
@@ -104,6 +136,93 @@ struct ProjectDetailView: View {
                 }
             }
         }
+    }
+    
+    // MARK: - Consolidated Toolbar
+    
+    @ToolbarContentBuilder
+    private var consolidatedToolbar: some ToolbarContent {
+        
+        // LEFT GROUP: Design & review actions
+        ToolbarItemGroup(placement: .secondaryAction) {
+            Button {
+                runValidation()
+            } label: {
+                Label("Validate", systemImage: "checkmark.shield")
+            }
+            .help("Check study completeness (⌘⇧V)")
+            .disabled(!project.isScaffolded)
+            
+            Button {
+                showingAddComponent = true
+            } label: {
+                Label("Add Component", systemImage: "plus.rectangle")
+            }
+            .help("Add a new study component")
+            .disabled(!project.isScaffolded)
+            
+            Button {
+                showingGraph = true
+            } label: {
+                Label("Graph View", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+            .help("View study as a visual graph")
+            .disabled(!project.isScaffolded)
+        }
+        
+        // RIGHT GROUP: Output pipeline
+        ToolbarItemGroup(placement: .primaryAction) {
+            
+            // Export Raw — menu with format options
+            Menu {
+                ForEach(ExportFormat.allCases) { format in
+                    Button {
+                        selectedExportFormat = format
+                        documentToExport = StudyExportDocument(project: project, format: format)
+                        showingExporter = true
+                    } label: {
+                        Label("Export as \(format.rawValue)", systemImage: "arrow.down.doc")
+                    }
+                }
+            } label: {
+                Label("Export Raw", systemImage: "square.and.arrow.up")
+            }
+            .help("Export structured data without LLM processing")
+            .disabled(!project.isScaffolded)
+            
+            // Draft Protocol — gated by validation
+            Button {
+                // Run a quick validation check first
+                let report = ValidationService.validate(project)
+                if report.isValid {
+                    showingDraftView = true
+                } else {
+                    // Show validation report so the user knows what to fix
+                    validationReport = report
+                    showingValidation = true
+                }
+            } label: {
+                Label("Draft Protocol", systemImage: "apple.intelligence")
+            }
+            .help("Generate protocol draft with local AI")
+            .disabled(!project.isScaffolded)
+        }
+    }
+    
+    // MARK: - Validation
+    
+    private func runValidation() {
+        validationReport = ValidationService.validate(project)
+        
+        // Update project status based on validation result
+        if let report = validationReport {
+            if report.isValid && project.status == .draft {
+                project.status = .validationReady
+                try? modelContext.save()
+            }
+        }
+        
+        showingValidation = true
     }
     
     // MARK: - Setup Prompt (for projects without a scaffold yet)
@@ -127,12 +246,10 @@ struct ProjectDetailView: View {
     
     private var scaffoldedView: some View {
         List {
-            // Study overview
             Section {
                 overviewCard
             }
             
-            // Component list in template order
             Section {
                 ForEach(project.scaffoldedNodes) { node in
                     ComponentRowView(node: node)
@@ -153,8 +270,6 @@ struct ProjectDetailView: View {
                     .font(.caption)
             }
             
-            // Connections (read-only, for reference)
-            // CRITICAL FIX: Safely unwrap the optional edges array
             let safeEdges = project.edges ?? []
             if !safeEdges.isEmpty {
                 Section("Connections") {
@@ -188,7 +303,6 @@ struct ProjectDetailView: View {
                 }
             }
             
-            // Progress bar
             let progress = project.completionProgress
             VStack(alignment: .leading, spacing: 4) {
                 ProgressView(

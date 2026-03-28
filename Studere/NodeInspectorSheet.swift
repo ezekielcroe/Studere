@@ -6,12 +6,16 @@ import SwiftUI
 // Keyboard:
 //   Tab       — Move between question fields (native macOS behavior)
 //   ⌘S        — Save and close
-//   Escape    — Close (native sheet behavior)
+//   Escape    — Close (handled by inspector panel natively)
 //   ⌘]        — Next component
 //   ⌘[        — Previous component
+//
+// IMPORTANT: This view is presented inside .inspector(), NOT .sheet().
+// Do NOT use @Environment(\.dismiss) — it propagates up and closes
+// the window instead of the inspector panel. Use the onClose callback
+// to let the parent set selectedNode = nil.
 
 struct NodeInspectorSheet: View {
-    @Environment(\.dismiss) private var dismiss
     @Bindable var node: ResearchNode
     
     /// All nodes in template order, for prev/next navigation.
@@ -20,6 +24,8 @@ struct NodeInspectorSheet: View {
     var onNavigate: ((ResearchNode) -> Void)?
     /// Callback to trigger an explicit save.
     var onSave: (() -> Void)?
+    /// Callback to close the inspector. The PARENT sets selectedNode = nil.
+    var onClose: (() -> Void)?
     
     private var questions: [InspectorQuestion] {
         InspectorQuestionBank.questions(for: node.nodeType)
@@ -185,8 +191,12 @@ struct NodeInspectorSheet: View {
     // MARK: - Actions
     
     private func saveAndClose() {
+        // 1. Save first, let SwiftData finish its update cycle
         onSave?()
-        dismiss()
+        // 2. Then close on the next run loop tick so the save settles
+        DispatchQueue.main.async {
+            onClose?()
+        }
     }
     
     private func navigateNext() {

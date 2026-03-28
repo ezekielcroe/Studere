@@ -19,6 +19,9 @@ struct ContentView: View {
                 onAddProject: {
                     showingSetup = true
                 },
+                onDuplicateProject: { project in
+                    duplicateProject(project)
+                },
                 onDeleteProjects: deleteProjects
             )
         } detail: {
@@ -39,11 +42,9 @@ struct ContentView: View {
             StudySetupView { title, template, choices in
                 showingSetup = false
                 
-                // 1. Create and insert the project on the MAIN context safely
                 let newProject = ResearchProject(title: title)
                 modelContext.insert(newProject)
                 
-                // 2. Build the scaffold inside the main context
                 ScaffoldBuilder.buildScaffold(
                     from: template,
                     choices: choices,
@@ -53,7 +54,6 @@ struct ContentView: View {
                 
                 newProject.status = .draft
                 
-                // 3. Force the context to save immediately, then queue the selection
                 do {
                     try modelContext.save()
                     pendingSelection = newProject
@@ -65,6 +65,11 @@ struct ContentView: View {
         .focusedSceneValue(\.createNewProjectAction, {
             showingSetup = true
         })
+        .focusedSceneValue(\.duplicateProjectAction, {
+            if let project = selectedProject {
+                duplicateProject(project)
+            }
+        })
         .onChange(of: projects) { _, newProjects in
             if let pending = pendingSelection,
                newProjects.contains(where: { $0.persistentModelID == pending.persistentModelID }) {
@@ -72,6 +77,13 @@ struct ContentView: View {
                 pendingSelection = nil
             }
         }
+    }
+    
+    // MARK: - Actions
+    
+    private func duplicateProject(_ project: ResearchProject) {
+        let duplicate = ProjectDuplicator.duplicate(project, in: modelContext)
+        pendingSelection = duplicate
     }
     
     private func deleteProjects(at offsets: IndexSet) {
